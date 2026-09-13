@@ -1,0 +1,142 @@
+{
+  "nav": {
+    "home": "Home",
+    "report": "Report Issue",
+    "budget": "Budget",
+    "hub": "Civic Hub",
+    "forum": "Forum",
+    "alerts": "Alerts",
+    "complaints": "My Complaints",
+    "login": "Login",
+    "logout": "Logout",
+    "register": "Register"
+  },
+  "home": {
+    "hero_title": "Your Voice. Your City.",
+    "hero_subtitle": "Report civic issues, track municipal spending, and stay connected with your community.",
+    "cta_report": "Report an Issue",
+    "cta_budget": "View Budget",
+    "stats_reports": "Issues Reported",
+    "stats_resolved": "Issues Resolved",
+    "stats_users": "Verified Citizens"
+  },
+  "report": {
+    "title": "Report a Civic Issue",
+    "subtitle": "Drop a pin on the map or use your current location",
+    "category": "Category",
+    "categories": {
+      "pothole": "Pothole",
+      "streetlight": "Broken Streetlight",
+      "water": "Water Supply Issue",
+      "sewage": "Sewage / Drainage",
+      "garbage": "Garbage / Waste",
+      "other": "Other"
+    },
+    "issueTitle": "Issue Title",
+    "titlePlaceholder": "Brief description of the problem",
+    "description": "Description",
+    "descriptionPlaceholder": "Provide more details about the issue...",
+    "photo": "Upload Photo (optional)",
+    "useLocation": "Use My Location",
+    "locating": "Locating...",
+    "locationSet": "Location set on map",
+    "locationError": "Could not get your location. Please click on the map.",
+    "submit": "Submit Report",
+    "submitting": "Submitting...",
+    "success": "Report submitted successfully! We'll keep you updated.",
+    "selectLocation": "Please select a location on the map",
+    "mapInstruction": "Click on the map to place a pin, or use the button above",
+    "status": {
+      "pending": "Pending",
+      "in_progress": "In Progress",
+      "resolved": "Resolved",
+      "rejected": "Rejected"
+    },
+    "recentReports": "Reported Issues"
+  },
+  "budget": {
+    "title": "Municipal Budget Transparency",
+    "subtitle": "Track how your tax money is being spent across departments",
+    "fiscalYear": "Fiscal Year",
+    "allocated": "Allocated",
+    "spent": "Spent",
+    "department": "Department",
+    "utilizationRate": "Utilization Rate",
+    "totalAllocated": "Total Allocated",
+    "totalSpent": "Total Spent",
+    "allDepartments": "All Departments",
+    "chartTitle": "Allocated vs Spent by Department",
+    "breakdownTitle": "Budget Breakdown",
+    "currency": "₹"
+  },
+  "hub": {
+    "title": "Civic Information Hub",
+    "elections": "Upcoming Elections",
+    "volunteers": "Volunteer Programs",
+    "volunteer_join": "Join as Volunteer",
+    "ward_info": "Your Ward Information",
+    "councillor": "Ward Councillor"
+  },
+  "forum": {
+    "title": "Community Forum",
+    "subtitle": "Discuss local issues with verified residents of your ward",
+    "newPost": "New Post",
+    "reply": "Reply",
+    "upvote": "Upvote",
+    "unverifiedNotice": "Only verified residents can post in the forum.",
+    "verifyNow": "Verify Residency",
+    "noThreads": "No discussions yet. Be the first to post!",
+    "postedBy": "Posted by",
+    "replies": "replies"
+  },
+  "alerts": {
+    "title": "Active Alerts",
+    "subtitle": "Stay informed about your area",
+    "noAlerts": "No active alerts for your area",
+    "severity": {
+      "info": "Info",
+      "warning": "Warning",
+      "critical": "Critical"
+    },
+    "type": {
+      "road_closure": "Road Closure",
+      "weather": "Weather",
+      "event": "Event",
+      "emergency": "Emergency"
+    },
+    "expires": "Expires"
+  },
+  "auth": {
+    "login": "Login",
+    "register": "Register",
+    "verify": "Verify Residency",
+    "otp": "Enter OTP",
+    "sendOtp": "Send OTP",
+    "resendOtp": "Resend OTP",
+    "phone": "Mobile Number",
+    "phonePlaceholder": "+91 9876543210",
+    "password": "Password",
+    "name": "Full Name",
+    "ward": "Ward Number",
+    "otpSent": "OTP sent to your mobile number",
+    "otpInvalid": "Invalid or expired OTP. Please try again.",
+    "verifiedSuccess": "Residency verified! You can now participate in the forum.",
+    "loginRequired": "Please login to continue"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong. Please try again.",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit",
+    "search": "Search",
+    "filter": "Filter",
+    "all": "All",
+    "viewAll": "View All",
+    "learnMore": "Learn More",
+    "poweredBy": "Powered by CivicConnect"
+  }
+}
