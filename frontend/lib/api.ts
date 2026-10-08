@@ -161,9 +161,11 @@ export interface Report {
   status: ReportStatus | string;
   priority?: ComplaintPriority | string;
   assigned_to?: string | null;
+  department?: string | null;
   upvotes: number;
   photo_url: string | null;
   after_photo_url: string | null;
+  resolved_at?: string | null;
   reporter_name: string;
   is_verified: boolean;
   report_count: number;
@@ -495,6 +497,8 @@ export async function getReports(params?: Record<string, string>) {
       if (orderA !== orderB) return orderA - orderB;
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
     });
+  } else if (params?.sort === 'support') {
+    reports.sort((a, b) => (b.upvotes || 0) - (a.upvotes || 0));
   } else {
     reports.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
@@ -1083,6 +1087,276 @@ export async function getVolunteerParticipants(programId?: number) {
     participants = participants.filter(p => p.program_id === programId);
   }
   return { data: { participants } };
+}
+
+// ── Analytics Types ─────────────────────────────────────────────────────────────
+
+export interface AnalyticsFilters {
+  category?: string | null;
+  department?: string | null;
+  priority?: string | null;
+  status?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  granularity?: 'daily' | 'weekly' | 'monthly';
+}
+
+export interface AnalyticsSummary {
+  total: number;
+  active: number;
+  resolved: number;
+  rejected: number;
+  critical: number;
+  resolutionRate: number;
+  avgResolutionHours: number | null;
+  totalUpvotes: number;
+  supportedCount: number;
+  avgRating: number | null;
+  feedbackCount: number;
+}
+
+export interface AnalyticsData {
+  summary: AnalyticsSummary;
+  byCategory: Record<string, number>;
+  byStatus: Record<string, number>;
+  byPriority: Record<string, number>;
+  byDepartment: { department: string; count: number }[];
+  overTime: { date: string; count: number }[];
+  granularity?: string;
+  filters?: AnalyticsFilters;
+}
+
+// ── Feedback Types ──────────────────────────────────────────────────────────────
+
+export interface Feedback {
+  id: number | string;
+  report_id: number | string;
+  user_id: number | string;
+  rating: number;
+  comment: string | null;
+  resolved_confirmation: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SubmitFeedbackInput {
+  rating: number;
+  comment?: string;
+  resolved_confirmation: boolean;
+}
+
+// Seed feedback store (empty for demo — feedback is user-generated)
+const SEED_FEEDBACK: Feedback[] = [];
+
+// ── Notification Types ──────────────────────────────────────────────────────────
+
+export interface Notification {
+  id: number | string;
+  user_id: number;
+  report_id: string | null;
+  notification_type: string;
+  title: string;
+  message: string;
+  is_read: boolean;
+  read_at: string | null;
+  created_at: string;
+}
+
+export type NotificationType =
+  | 'COMPLAINT_SUBMITTED'
+  | 'COMPLAINT_VERIFIED'
+  | 'COMPLAINT_REJECTED'
+  | 'DEPARTMENT_ASSIGNED'
+  | 'PRIORITY_CHANGED'
+  | 'STATUS_CHANGED'
+  | 'IN_PROGRESS'
+  | 'COMPLAINT_RESOLVED'
+  | 'ADMIN_REMARK'
+  | 'FEEDBACK_SUBMITTED'
+  | string;
+
+// ── Analytics Helpers ───────────────────────────────────────────────────────────
+
+function autoGranularity(reports: any[]): 'daily' | 'weekly' | 'monthly' {
+  if (!reports.length) return 'monthly';
+  const times = reports
+    .map(r => r.created_at ? new Date(r.created_at).getTime() : NaN)
+    .filter(t => !Number.isNaN(t));
+  if (!times.length) return 'monthly';
+  const spanDays = (Math.max(...times) - Math.min(...times)) / 86_400_000;
+  if (spanDays <= 14) return 'daily';
+  if (spanDays <= 90) return 'weekly';
+  return 'monthly';
+}
+
+function bucketDate(dateStr: string, granularity: 'daily' | 'weekly' | 'monthly'): string {
+  const d = new Date(dateStr);
+  if (granularity === 'daily') {
+    return d.toISOString().slice(0, 10);
+  }
+  if (granularity === 'weekly') {
+    const day = d.getUTCDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const mon = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + diff));
+    return mon.toISOString().slice(0, 10);
+  }
+  return d.toISOString().slice(0, 7);
+}
+
+// ── Analytics API ───────────────────────────────────────────────────────────────
+
+/**
+ * Fetches combined analytics dashboard data with optional filters.
+ * Mirrors the backend /api/analytics/all endpoint logic using localStorage.
+ */
+export async function getAnalyticsDashboardData(filters?: AnalyticsFilters): Promise<{ data: AnalyticsData }> {
+  initStore();
+  const reports = getStore<any>('reports', SEED_REPORTS);
+  const feedback = getStore<Feedback>('feedback', SEED_FEEDBACK);
+
+  // Apply filters
+  const filtered = reports.filter(r => {
+    if (filters?.category && (r.category || 'other') !== filters.category) return false;
+    if (filters?.priority && (r.priority || 'MEDIUM').toUpperCase() !== filters.priority) return false;
+    if (filters?.status && normalizeStatus(r.status) !== filters.status) return false;
+    if (filters?.department) {
+      const dept = r.department && r.department.trim() ? r.department.trim() : 'Unassigned';
+      if (dept !== filters.department) return false;
+    }
+    if (filters?.start_date && r.created_at) {
+      if (new Date(r.created_at) < new Date(filters.start_date + 'T00:00:00.000Z')) return false;
+    }
+    if (filters?.end_date && r.created_at) {
+      if (new Date(r.created_at) > new Date(filters.end_date + 'T23:59:59.999Z')) return false;
+    }
+    return true;
+  });
+
+  const total = filtered.length;
+  const resolved = filtered.filter(r => normalizeStatus(r.status) === 'RESOLVED').length;
+  const rejected = filtered.filter(r => normalizeStatus(r.status) === 'REJECTED').length;
+  const active = total - resolved - rejected;
+  const critical = filtered.filter(r => (r.priority || 'MEDIUM').toUpperCase() === 'CRITICAL').length;
+  const resolutionRate = total > 0 ? parseFloat(((resolved / total) * 100).toFixed(1)) : 0;
+
+  const withResTime = filtered.filter(r =>
+    normalizeStatus(r.status) === 'RESOLVED' && r.resolved_at && r.created_at
+  );
+  const avgResolutionHours = withResTime.length > 0
+    ? parseFloat((
+        withResTime.reduce((sum, r) => {
+          const resAt = new Date(r.resolved_at as string).getTime();
+          const createdAt = new Date(r.created_at as string).getTime();
+          return sum + (resAt - createdAt) / 3_600_000;
+        }, 0) / withResTime.length
+      ).toFixed(1))
+    : null;
+
+  const totalUpvotes = filtered.reduce((s, r) => s + (r.upvotes || 0), 0);
+  const supportedCount = filtered.filter(r => (r.upvotes || 0) > 0).length;
+  const feedbackCount = feedback.length;
+  const avgRating = feedbackCount > 0
+    ? parseFloat((feedback.reduce((s, f) => s + (f.rating || 0), 0) / feedbackCount).toFixed(2))
+    : null;
+
+  const summary: AnalyticsSummary = {
+    total, active, resolved, rejected, critical,
+    resolutionRate, avgResolutionHours,
+    totalUpvotes, supportedCount,
+    avgRating, feedbackCount,
+  };
+
+  // byCategory
+  const byCategory: Record<string, number> = { pothole: 0, streetlight: 0, water: 0, sewage: 0, garbage: 0, other: 0 };
+  for (const r of filtered) {
+    const cat = r.category || 'other';
+    byCategory[cat] = (byCategory[cat] || 0) + 1;
+  }
+
+  // byStatus
+  const byStatus: Record<string, number> = { SUBMITTED: 0, UNDER_REVIEW: 0, VERIFIED: 0, ASSIGNED: 0, IN_PROGRESS: 0, RESOLVED: 0, REJECTED: 0 };
+  for (const r of filtered) {
+    const s = normalizeStatus(r.status);
+    if (s in byStatus) byStatus[s]++;
+  }
+
+  // byPriority
+  const byPriority: Record<string, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+  for (const r of filtered) {
+    const p = (r.priority || 'MEDIUM').toUpperCase();
+    if (p in byPriority) byPriority[p]++;
+  }
+
+  // byDepartment
+  const deptMap: Record<string, number> = {};
+  for (const r of filtered) {
+    const dept = r.department && r.department.trim() ? r.department.trim() : 'Unassigned';
+    deptMap[dept] = (deptMap[dept] || 0) + 1;
+  }
+  const byDepartment = Object.entries(deptMap)
+    .map(([department, count]) => ({ department, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // overTime
+  const granularity = filters?.granularity || autoGranularity(filtered);
+  const timeMap: Record<string, number> = {};
+  for (const r of filtered) {
+    if (!r.created_at) continue;
+    const key = bucketDate(r.created_at, granularity);
+    timeMap[key] = (timeMap[key] || 0) + 1;
+  }
+  const overTime = Object.entries(timeMap)
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    data: {
+      summary, byCategory, byStatus, byPriority, byDepartment, overTime,
+      granularity, filters: filters || {},
+    },
+  };
+}
+
+// ── Feedback API ────────────────────────────────────────────────────────────────
+
+export async function getFeedback(reportId: string | number) {
+  initStore();
+  const feedback = getStore<Feedback>('feedback', SEED_FEEDBACK);
+  const result = feedback.filter(f => String(f.report_id) === String(reportId));
+  // Return the first one (user can only submit one feedback per report in this prototype)
+  return { data: { feedback: result[0] || null } };
+}
+
+export async function submitFeedback(reportId: string | number, input: SubmitFeedbackInput) {
+  initStore();
+  const tokenData = parseToken();
+  if (!tokenData) throw { response: { data: { error: 'Please login first.' }, status: 401 } };
+
+  const feedbackStore = getStore<Feedback>('feedback', SEED_FEEDBACK);
+  const existing = feedbackStore.find(f => String(f.report_id) === String(reportId) && f.user_id === tokenData.id);
+
+  if (existing) {
+    existing.rating = input.rating;
+    existing.comment = input.comment || null;
+    existing.resolved_confirmation = input.resolved_confirmation;
+    existing.updated_at = new Date().toISOString();
+    setStore('feedback', feedbackStore);
+    return { data: { feedback: existing } };
+  }
+
+  const feedback: Feedback = {
+    id: getNextId(),
+    report_id: reportId,
+    user_id: tokenData.id,
+    rating: input.rating,
+    comment: input.comment || null,
+    resolved_confirmation: input.resolved_confirmation,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  feedbackStore.push(feedback);
+  setStore('feedback', feedbackStore);
+  return { data: { feedback } };
 }
 
 // Default export for backward compatibility

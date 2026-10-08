@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import Navbar from '@/components/Navbar';
+import AdminAnalyticsCharts from '@/components/AdminAnalyticsCharts';
 import {
   getUsers,
   deleteUser,
@@ -23,6 +24,10 @@ import {
   VALID_PRIORITIES,
   PRIORITY_CONFIG,
   PRIORITY_ORDER,
+  getAnalyticsDashboardData,
+  AnalyticsData,
+  AnalyticsFilters,
+  AnalyticsSummary,
 } from '@/lib/api';
 import toast from 'react-hot-toast';
 import {
@@ -725,6 +730,20 @@ function AdminDashboard() {
   const [approvalThreshold, setApprovalThreshold] = useState(5);
   const [loading, setLoading] = useState(true);
 
+  // Analytics state
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [analyticsFilters, setAnalyticsFilters] = useState<AnalyticsFilters>({});
+
+  // Analytics filter UI state
+  const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [filterDepartment, setFilterDepartment] = useState<string>('all');
+  const [filterPriority, setFilterPriority] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+
   // Workflow & Priority management state
   const [statusFilter, setStatusFilter] = useState<'all' | ReportStatus>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | ComplaintPriority>('all');
@@ -744,6 +763,7 @@ function AdminDashboard() {
 
   useEffect(() => {
     fetchData();
+    fetchAnalytics();
   }, []);
 
   const fetchData = async () => {
@@ -767,6 +787,66 @@ function AdminDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ─── Analytics Fetch ──────────────────────────────────────────────────────────
+  const fetchAnalytics = async () => {
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    try {
+      const res = await getAnalyticsDashboardData(analyticsFilters);
+      setAnalyticsData(res.data);
+    } catch (err: any) {
+      setAnalyticsError(err?.message || 'Failed to load analytics');
+      setAnalyticsData(null);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+
+  const applyAnalyticsFilters = () => {
+    const filters: AnalyticsFilters = {
+      category: filterCategory !== 'all' ? filterCategory : null,
+      priority: filterPriority !== 'all' ? filterPriority : null,
+      status: filterStatus !== 'all' ? filterStatus : null,
+      department: filterDepartment !== 'all' ? filterDepartment : null,
+      start_date: startDate || null,
+      end_date: endDate || null,
+    };
+    setAnalyticsFilters(filters);
+    fetchAnalytics();
+  };
+
+  const resetAnalyticsFilters = () => {
+    setFilterCategory('all');
+    setFilterDepartment('all');
+    setFilterPriority('all');
+    setFilterStatus('all');
+    setStartDate('');
+    setEndDate('');
+    setAnalyticsFilters({});
+    fetchAnalytics();
+  };
+
+  const applyDatePreset = (preset: '7d' | '30d' | '90d' | 'month' | 'all') => {
+    const today = new Date();
+    if (preset === '7d') {
+      setStartDate(new Date(today.getTime() - 7 * 86400000).toISOString().slice(0, 10));
+      setEndDate('');
+    } else if (preset === '30d') {
+      setStartDate(new Date(today.getTime() - 30 * 86400000).toISOString().slice(0, 10));
+      setEndDate('');
+    } else if (preset === '90d') {
+      setStartDate(new Date(today.getTime() - 90 * 86400000).toISOString().slice(0, 10));
+      setEndDate('');
+    } else if (preset === 'month') {
+      setStartDate(new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10));
+      setEndDate('');
+    } else {
+      setStartDate('');
+      setEndDate('');
+    }
+    // Note: applyAnalyticsFilters will be called manually or via filter change
   };
 
   const handleRemoveUser = async (id: number) => {
@@ -1852,6 +1932,128 @@ function AdminDashboard() {
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* SECTION: Administrative Insights & Analytics */}
+            <div className="civic-card" style={{ padding: 24, marginBottom: 40 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
+                <div>
+                  <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                    <BarChart2 size={20} color="#2563eb" /> Administrative Insights & Analytics
+                  </h2>
+                  <p style={{ fontSize: '0.82rem', color: '#64748b', margin: '4px 0 0' }}>
+                    Key performance indicators, trend analysis, and descriptive insights for civic operations.
+                  </p>
+                </div>
+              </div>
+
+              {/* KPI Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 24 }}>
+                {(() => {
+                  const s = analyticsData?.summary;
+                  if (!s) return [];
+                  const total = s.total;
+                  const active = s.active;
+                  const resolved = s.resolved;
+                  const critical = s.critical;
+                  const resolutionRate = total > 0 ? s.resolutionRate : 0;
+                  const avgResolutionHours = s.avgResolutionHours;
+                  const formatAvgTime = (hours: number | null) => {
+                    if (hours == null) return { value: 'N/A', unit: '', context: 'No resolved complaints yet' };
+                    if (hours >= 24) return { value: (hours / 24).toFixed(1), unit: 'days', context: 'From submission to resolution' };
+                    return { value: hours.toFixed(1), unit: 'hrs', context: 'From submission to resolution' };
+                  };
+                  const avgTime = formatAvgTime(avgResolutionHours);
+                  return [
+                    { title: 'Total Complaints', value: total.toLocaleString(), unit: '', context: total === 0 ? 'No complaints registered' : 'All registered civic issues' },
+                    { title: 'Active Complaints', value: active.toLocaleString(), unit: '', context: total === 0 ? 'No active backlog' : 'Pending, in review & in-progress' },
+                    { title: 'Resolved Complaints', value: resolved.toLocaleString(), unit: '', context: total === 0 ? '0 issues closed' : 'Successfully completed' },
+                    { title: 'Critical Complaints', value: critical.toLocaleString(), unit: '', context: total === 0 ? 'No critical issues' : critical > 0 ? 'Requires immediate action' : 'Zero critical hazards' },
+                    { title: 'Resolution Rate', value: `${resolutionRate}`, unit: '%', context: total === 0 ? 'No complaints to calculate' : `${resolved} of ${total} resolved` },
+                    { title: 'Avg Resolution Time', value: avgTime.value, unit: avgTime.unit, context: avgTime.context },
+                  ].map((kpi, idx) => (
+                    <div key={idx} className="civic-card" style={{ padding: '20px 24px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{kpi.title}</div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 4 }}>
+                        <span style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a', lineHeight: 1 }}>{kpi.value}</span>
+                        {kpi.unit && <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#64748b' }}>{kpi.unit}</span>}
+                      </div>
+                      <div style={{ fontSize: '0.7rem', color: '#94a3b8', lineHeight: 1.4 }}>{kpi.context}</div>
+                    </div>
+                  ));
+                })()}
+              </div>
+
+              {/* Filter Bar */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginBottom: 24, padding: 16, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 160 }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Category</label>
+                  <select value={filterCategory} onChange={(e) => { setFilterCategory(e.target.value); applyAnalyticsFilters(); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.85rem', background: 'white' }}>
+                    <option value="all">All Categories</option>
+                    <option value="pothole">Pothole & Roads</option>
+                    <option value="streetlight">Streetlight</option>
+                    <option value="water">Water Supply</option>
+                    <option value="sewage">Sewage & Drainage</option>
+                    <option value="garbage">Solid Waste</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 180 }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Department</label>
+                  <select value={filterDepartment} onChange={(e) => { setFilterDepartment(e.target.value); applyAnalyticsFilters(); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.85rem', background: 'white' }}>
+                    <option value="all">All Departments</option>
+                    {(() => {
+                      const depts = analyticsData?.byDepartment || [];
+                      return depts.map(d => <option key={d.department} value={d.department}>{d.department} ({d.count})</option>);
+                    })()}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Priority</label>
+                  <select value={filterPriority} onChange={(e) => { setFilterPriority(e.target.value); applyAnalyticsFilters(); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.85rem', background: 'white' }}>
+                    <option value="all">All Priorities</option>
+                    <option value="CRITICAL">Critical</option>
+                    <option value="HIGH">High</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="LOW">Low</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 160 }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Status</label>
+                  <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); applyAnalyticsFilters(); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.85rem', background: 'white' }}>
+                    <option value="all">All Statuses</option>
+                    <option value="SUBMITTED">Submitted</option>
+                    <option value="UNDER_REVIEW">Under Review</option>
+                    <option value="VERIFIED">Verified</option>
+                    <option value="ASSIGNED">Assigned</option>
+                    <option value="IN_PROGRESS">In Progress</option>
+                    <option value="RESOLVED">Resolved</option>
+                    <option value="REJECTED">Rejected</option>
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Start Date</label>
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.85rem' }} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 140 }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>End Date</label>
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.85rem' }} />
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button onClick={() => { applyDatePreset('7d'); setTimeout(applyAnalyticsFilters, 0); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', fontSize: '0.75rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }}>Last 7 days</button>
+                  <button onClick={() => { applyDatePreset('30d'); setTimeout(applyAnalyticsFilters, 0); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', fontSize: '0.75rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }}>Last 30 days</button>
+                  <button onClick={() => { applyDatePreset('90d'); setTimeout(applyAnalyticsFilters, 0); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', fontSize: '0.75rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }}>Last 90 days</button>
+                  <button onClick={() => { applyDatePreset('month'); setTimeout(applyAnalyticsFilters, 0); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', fontSize: '0.75rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }}>This Month</button>
+                  <button onClick={() => { applyDatePreset('all'); setTimeout(applyAnalyticsFilters, 0); }} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', background: 'white', fontSize: '0.75rem', fontWeight: 600, color: '#475569', cursor: 'pointer' }}>All Time</button>
+                  <button onClick={resetAnalyticsFilters} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #ef4444', background: '#fef2f2', fontSize: '0.75rem', fontWeight: 700, color: '#ef4444', cursor: 'pointer' }}>
+                    <RefreshCw size={12} style={{ marginRight: 4 }} /> Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* Charts */}
+              <AdminAnalyticsCharts data={analyticsData} loading={analyticsLoading} error={analyticsError} />
+
             </div>
 
             {/* SECTION 3: Registered Users (Preserved from original code) */}

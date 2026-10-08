@@ -17,6 +17,8 @@ const budgetRouter  = require('./routes/budget');
 const authRouter    = require('./routes/auth');
 const forumRouter   = require('./routes/forum');
 const alertsRouter  = require('./routes/alerts');
+const analyticsRouter = require('./routes/analytics');
+const notificationsRouter = require('./routes/notifications');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -49,6 +51,8 @@ app.use('/api/budget',  budgetRouter);
 app.use('/api/auth',    authRouter);
 app.use('/api/forum',   forumRouter);
 app.use('/api/alerts',  alertsRouter);
+app.use('/api/analytics', analyticsRouter);
+app.use('/api/notifications', notificationsRouter);
 
 // ── 404 Handler ───────────────────────────────────────────────────────────────
 app.use((req, res) => {

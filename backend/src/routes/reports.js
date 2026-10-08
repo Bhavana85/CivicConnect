@@ -714,4 +714,149 @@ router.post('/:id/like', authMiddleware, async (req, res) => {
   }
 });
 
+// Supportable statuses - only these statuses can receive support
+const SUPPORTABLE_STATUSES = ['IN_PROGRESS', 'RESOLVED'];
+
+// ── POST /api/reports/:id/support ───────────────────────────────────────────────
+// Add a support (upvote) for a complaint
+router.post('/:id/support', authMiddleware, async (req, res) => {
+  const reportId = req.params.id;
+
+  try {
+    if (db.isInMemory) {
+      const report = db.store.reports.find(r => r.id == reportId);
+      if (!report) return res.status(404).json({ error: 'Report not found.' });
+
+      const currentStatus = normalizeStatus(report.status);
+      if (!SUPPORTABLE_STATUSES.includes(currentStatus)) {
+        return res.status(400).json({ error: 'This complaint is not yet supportable.' });
+      }
+
+      if (!db.store.report_likes) db.store.report_likes = [];
+      const existing = db.store.report_likes.find(
+        l => l.report_id == reportId && l.user_id === req.user.id
+      );
+      if (existing) {
+        return res.status(409).json({ error: 'Already supported this complaint.' });
+      }
+
+      db.store.report_likes.push({ report_id: reportId, user_id: req.user.id });
+      // Recalculate upvotes from likes array
+      report.upvotes = db.store.report_likes.filter(l => l.report_id == reportId).length;
+      return res.status(201).json({ support_count: report.upvotes, user_supported: true });
+    }
+
+    // PostgreSQL
+    const reportRes = await db.query('SELECT id, status FROM reports WHERE id = $1', [reportId]);
+    if (!reportRes.rows.length) return res.status(404).json({ error: 'Report not found.' });
+
+    const currentStatus = normalizeStatus(reportRes.rows[0].status);
+    if (!SUPPORTABLE_STATUSES.includes(currentStatus)) {
+      return res.status(400).json({ error: 'This complaint is not yet supportable.' });
+    }
+
+    const likeRes = await db.query(
+      'INSERT INTO report_likes (report_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING report_id',
+      [reportId, req.user.id]
+    );
+
+    if (likeRes.rowCount === 0) {
+      return res.status(409).json({ error: 'Already supported this complaint.' });
+    }
+
+    await db.query('UPDATE reports SET upvotes = upvotes + 1 WHERE id = $1', [reportId]);
+
+    const countRes = await db.query('SELECT COUNT(*) FROM report_likes WHERE report_id = $1', [reportId]);
+    return res.status(201).json({ support_count: parseInt(countRes.rows[0].count), user_supported: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to add support.' });
+  }
+});
+
+// ── DELETE /api/reports/:id/support ─────────────────────────────────────────────
+// Remove a support (upvote) for a complaint
+router.delete('/:id/support', authMiddleware, async (req, res) => {
+  const reportId = req.params.id;
+
+  try {
+    if (db.isInMemory) {
+      const report = db.store.reports.find(r => r.id == reportId);
+      if (!report) return res.status(404).json({ error: 'Report not found.' });
+
+      if (!db.store.report_likes) db.store.report_likes = [];
+      const likeIndex = db.store.report_likes.findIndex(
+        l => l.report_id == reportId && l.user_id === req.user.id
+      );
+      if (likeIndex === -1) {
+        return res.status(404).json({ error: 'Support not found.' });
+      }
+
+      db.store.report_likes.splice(likeIndex, 1);
+      // Recalculate upvotes from likes array
+      report.upvotes = db.store.report_likes.filter(l => l.report_id == reportId).length;
+      return res.json({ support_count: report.upvotes, user_supported: false });
+    }
+
+    // PostgreSQL
+    const reportRes = await db.query('SELECT id FROM reports WHERE id = $1', [reportId]);
+    if (!reportRes.rows.length) return res.status(404).json({ error: 'Report not found.' });
+
+    const likeRes = await db.query(
+      'DELETE FROM report_likes WHERE report_id = $1 AND user_id = $2 RETURNING report_id',
+      [reportId, req.user.id]
+    );
+
+    if (likeRes.rowCount === 0) {
+      return res.status(404).json({ error: 'Support not found.' });
+    }
+
+    await db.query('UPDATE reports SET upvotes = GREATEST(0, upvotes - 1) WHERE id = $1', [reportId]);
+
+    const countRes = await db.query('SELECT COUNT(*) FROM report_likes WHERE report_id = $1', [reportId]);
+    return res.json({ support_count: parseInt(countRes.rows[0].count), user_supported: false });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to remove support.' });
+  }
+});
+
+// ── GET /api/reports/:id/support ────────────────────────────────────────────────
+// Get support count and whether current user has supported
+router.get('/:id/support', authMiddleware, async (req, res) => {
+  const reportId = req.params.id;
+
+  try {
+    if (db.isInMemory) {
+      const report = db.store.reports.find(r => r.id == reportId);
+      if (!report) return res.status(404).json({ error: 'Report not found.' });
+
+      const supported = db.store.report_likes?.some(
+        l => l.report_id == reportId && l.user_id === req.user.id
+      ) || false;
+
+      // Calculate support count from likes array
+      const supportCount = db.store.report_likes?.filter(l => l.report_id == reportId).length || 0;
+      return res.json({ support_count: supportCount, user_supported: supported });
+    }
+
+    // PostgreSQL
+    const reportRes = await db.query('SELECT id FROM reports WHERE id = $1', [reportId]);
+    if (!reportRes.rows.length) return res.status(404).json({ error: 'Report not found.' });
+
+    const [countRes, likeRes] = await Promise.all([
+      db.query('SELECT COUNT(*) FROM report_likes WHERE report_id = $1', [reportId]),
+      db.query('SELECT 1 FROM report_likes WHERE report_id = $1 AND user_id = $2', [reportId, req.user.id]),
+    ]);
+
+    const supportCount = parseInt(countRes.rows[0].count);
+    const userSupported = likeRes.rowCount > 0;
+
+    return res.json({ support_count: supportCount, user_supported: userSupported });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch support info.' });
+  }
+});
+
 module.exports = router;
